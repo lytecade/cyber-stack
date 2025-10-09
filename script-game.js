@@ -211,6 +211,7 @@ class ActionScene extends Phaser.Scene {
         this.load.spritesheet("sprite-hud", "assets/sprite-hud.png", { frameWidth: 8, frameHeight: 8, margin: 0, spacing: 0 });
         this.load.spritesheet("sprite-stack", "assets/sprite-stack.png", { frameWidth: 32, frameHeight: 8, margin: 0, spacing: 0 });
         this.load.image("tileset-stacks", "assets/tileset-stacks.png");
+        this.load.audio("sfx-click", "assets/sfx-click.wav");
     }
     create() {
         this.textures.generate('textureBackground', {
@@ -219,6 +220,7 @@ class ActionScene extends Phaser.Scene {
             pixelHeight: 1
         });
         this.add.image(0, 0, 'textureBackground').setOrigin(0, 0).setScrollFactor(0).setDisplaySize(96, 96);
+        this.clickSound = this.sound.add("sfx-click");
         this.game.scale.fullScreenTarget = document.documentElement; 
         this.tiles = [];
         this.tileSwitch = [];
@@ -260,6 +262,7 @@ class ActionScene extends Phaser.Scene {
 	        } else {
                     UIs.updateHudCounter(this);
 	            this.mainStacks.push(new Stack(this, currentX, currentY - 8, currentFrame, currentSize, this.mainStacks.length));
+                    this.clickSound.play();
                     if (currentY < (StackSettings.TileMaxHeightBounds - 56)) {
                         this.setCamera((this.mainStacks.length * 8) - 48);
                     }
