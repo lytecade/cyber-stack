@@ -57,7 +57,7 @@
   const BASE_SPEED = 2.8;              // base horizontal speed
   const SPEED_INCREMENT = 0.12;        // speed increase per block
   const MAX_SPEED = 9;
-  const SCROLL_TRIGGER = 0.45;         // scroll when stack exceeds 45% of canvas
+  const SCROLL_THRESHOLD = 12;         // start scrolling camera after this many blocks
   const PARTICLE_COUNT = 18;           // particles per slice
   const PERFECT_THRESHOLD = 0.015;     // pixel tolerance for "perfect" stack
   const GLOW_PULSE_MIN = 0.6;
@@ -304,10 +304,9 @@
       }
     }
 
-    // Scroll camera if stack is too high
-    const stackTop = placed.y - cameraY;
-    if (stackTop < SIZE * SCROLL_TRIGGER) {
-      cameraY += (SIZE * SCROLL_TRIGGER - stackTop);
+    // Scroll camera: fixed after 12 blocks, then one block height per new block
+    if (blocks.length > SCROLL_THRESHOLD) {
+      cameraY += blockH();
     }
 
     // Spawn next active block
