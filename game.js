@@ -54,7 +54,7 @@
   // ---- Game Constants (in logical pixels) ----
   const BLOCK_HEIGHT_RATIO = 0.035;   // block height as fraction of canvas
   const INITIAL_WIDTH_RATIO = 0.55;    // starting block width fraction
-  const BASE_SPEED = 2.8;              // base horizontal speed
+  const BASE_SPEED = 3.36;              // base horizontal speed
   const SPEED_INCREMENT = 0.12;        // speed increase per block
   const MAX_SPEED = 9;
   const SCROLL_THRESHOLD = 12;         // start scrolling camera after this many blocks
