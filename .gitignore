@@ -1,2 +1,4 @@
-**/*.swp
-docker-compose.yml
+*.py
+__pycache__/
+*.py[cod]
+*$py.class
