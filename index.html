@@ -1,12 +1,34 @@
-<!doctype html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>Tempo Stack</title>
-    <meta charset="utf-8">
-    <meta name="description" content="Tempo Stack is an HTML5-based game where players control a moving block, with the objective of stacking each new block on top of the previous one. The block moves back and forth between two walls, changing directions when it hits a wall. Players must time their actions to stop the block at the right moment, aligning it precisely on top of the stack.">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>CyberStack</title>
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #1B2632;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Courier New', Courier, monospace;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    user-select: none;
+  }
+
+  canvas {
+    display: block;
+    background: #1B2632;
+    image-rendering: pixelated;
+  }
+</style>
 </head>
-<body style="margin:0;padding:0;height:100%;background:#1b2632;overflow:hidden">
-    <div id="game"></div>
-    <script src="./script-phaser.min.js"></script>
-    <script src="./script-game.min.js"></script>
+<body>
+<canvas id="game"></canvas>
+<script src="game.js"></script>
 </body>
+</html>

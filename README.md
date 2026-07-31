@@ -1,37 +1,67 @@
-# Tempo Stack
+# CyberStack
+
+An arcade-style tower stacking game with a cyberpunk/sci-fi aesthetic.
 
 ## Overview
 
-**Tempo Stack** is an HTML5-based game where players control a moving block, with the objective of stacking each new block on top of the previous one. The block moves back and forth between two walls, changing directions when it hits a wall. Players must time their actions to stop the block at the right moment, aligning it precisely on top of the stack.
-
-With each successful placement, a new block is generated, and the stack grows higher. If any portion of the block extends past the edge of the previous block, it is removed. The game ends if the available space for stacking runs out.
-
-## Objective
-
-The main objective of **Tempo Stack** is to stack as many blocks as possible without any portion of a block falling off. Each time a block is successfully placed on top of the previous one, your score increases by one. The game continues until the stack space is filled or a block fails to stack correctly.
-
-## Gameplay
-
-- The block moves back and forth, changing direction when it hits a wall.
-- Press the **ENTER** or **SPACE** key (on desktop) or tap the screen (on mobile) to stop the block's movement.
-- If the block is stacked correctly on top of the previous block, the next block is generated, and the process repeats.
-- If any part of the block overhangs, it is removed, and the player must try again.
-- The game ends when the stack space runs out.
+Build the tallest tower possible by dropping moving slabs on top of each other.
+Any edge that doesn't overlap with the block below gets sliced off, shrinking
+your next block. The game ends when a block misses entirely and falls away.
 
 ## Controls
 
-- **Desktop**: Press **ENTER** or **SPACE** to stop the block.
-- **Mobile**: Tap the screen to stop the block.
-  
-## Scoring
+| Input | Action |
+|-------|--------|
+| **Space** / **Enter** | Drop the current block |
+| **Tap** / **Click** | Drop the current block |
 
-The score is based on the number of blocks successfully stacked. Each successfully placed block adds one point to the score. The game ends when the stack space is filled, or when a block fails to stack correctly.
+## How to Play
 
-## Requirements
+1. Open `index.html` in a modern web browser.
+2. Press any key, tap, or click on the title screen to start.
+3. A block will slide horizontally above your tower — time your placement carefully.
+4. Drop the block with **Space**, **Enter**, or a tap/click.
+5. The non-overlapping portion is sliced off; the remaining part becomes your next base.
+6. Score 1 point per successful stack. Beat your high score!
 
-- HTML5-compliant browser
-- JavaScript-enabled environment for game functionality
+## Game Features
 
-## Important Note
+- **Square canvas** that auto-scales to fit any screen size.
+- **Cyberpunk neon visuals** using the Arne16 color palette.
+- **Particle effects** on every slice.
+- **Responsive controls** for both desktop (keyboard) and mobile (touch).
+- **High score** saved to `localStorage` between sessions.
+- **Zero external dependencies** — pure HTML, CSS, and JavaScript.
 
-If you are running the game locally on your machine (i.e. in a docker container) you will need to replace the reference for the phaser script with an external CDN such as the one [here](https://phaser.io/download/stable). The script-phaser-3581 script is from a different project and is not included in this repository. Alternatively you can download a copy of the Phaser library from the official site.
+## Color Palette (Arne16)
+
+| Hex | Role |
+|-----|------|
+| `#000000` | Pure black |
+| `#9D9D9D` | Mid gray |
+| `#FFFFFF` | White |
+| `#BE2633` | Dark red |
+| `#E06F8B` | Pink |
+| `#493C2B` | Dark brown |
+| `#A46422` | Brown |
+| `#EB8931` | Orange |
+| `#F7E26B` | Yellow |
+| `#2F484E` | Dark teal |
+| `#44891A` | Dark green |
+| `#A3CE27` | Lime green |
+| `#1B2632` | Dark navy (background) |
+| `#005784` | Blue |
+| `#31A2F2` | Light blue (neon) |
+| `#B2DCFF` | Cyan (neon accent) |
+
+## File Structure
+
+```
+├── README.md      # This file
+├── index.html     # Entry point with canvas and styles
+└── game.js        # All game logic and rendering
+```
+
+## Browser Support
+
+Works in any modern browser with Canvas 2D support (Chrome, Firefox, Safari, Edge).
