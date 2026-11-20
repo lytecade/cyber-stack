@@ -33,12 +33,11 @@
   ];
 
   // ---- Game Constants ----
-  const BLOCK_HEIGHT_RATIO = 0.035;   // block height as fraction of reference scale S
+  const BLOCK_HEIGHT_RATIO = 0.0525;  // block height as fraction of reference scale S
   const INITIAL_WIDTH_RATIO = 0.55;    // starting block width fraction of S
   const BASE_SPEED = 3.36;              // base horizontal speed at 720p
   const SPEED_INCREMENT = 0.12;        // speed increase per block
   const MAX_SPEED = 9;
-  const SCROLL_THRESHOLD = 12;         // start scrolling camera after this many blocks
   const PARTICLE_COUNT = 18;           // particles per slice
   const PERFECT_THRESHOLD = 0.015;     // tolerance fraction of S for "perfect" stack
   const GLOW_PULSE_MIN = 0.6;
@@ -53,7 +52,8 @@
   let activeBlock = null;   // the currently moving block
   let particles = [];       // {x, y, vx, vy, life, color, size}
   let score = 0;
-  let highScore = parseInt(localStorage.getItem("cyberstack_high") || "0", 10);
+  let highScore = parseInt(localStorage.getItem("cyberstack_high") || "0", 10) || 0;
+  let isNewHighScore = false;
   let combo = 0;            // consecutive "perfect" stacks
   let cameraY = 0;          // vertical camera offset
   let shakeAmount = 0;      // screen shake
@@ -78,10 +78,21 @@
   function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
 
   // ---- Responsive Dimensions & Play Corridor ----
-  function blockH() { return S * BLOCK_HEIGHT_RATIO; }
-  function initialW() { return S * INITIAL_WIDTH_RATIO; }
+  function blockH(s = S) { return s * BLOCK_HEIGHT_RATIO; }
+  function initialW(s = S) { return s * INITIAL_WIDTH_RATIO; }
   function getBaseY(h = H, s = S) {
-    return h - s * BLOCK_HEIGHT_RATIO - s * 0.08;
+    return h - blockH(s) - s * 0.08;
+  }
+  function getTargetActiveY(h = H, s = S) {
+    return h * 0.5 - blockH(s) * 0.5;
+  }
+  function getScrollThreshold(h = H, s = S) {
+    const bh = blockH(s);
+    return (getBaseY(h, s) - getTargetActiveY(h, s)) / bh;
+  }
+  function getCameraY(blockCount = blocks.length, h = H, s = S) {
+    const bh = blockH(s);
+    return Math.max(0, (blockCount - getScrollThreshold(h, s)) * bh);
   }
   function playLeft() { return (W - S) / 2; }
   function playRight() { return (W + S) / 2; }
@@ -128,7 +139,7 @@
         b.y = newBaseY - i * bh;
       }
 
-      cameraY = Math.max(0, (blocks.length - SCROLL_THRESHOLD) * bh);
+      cameraY = getCameraY(blocks.length, H, S);
 
       if (activeBlock) {
         if (activeBlock.normW === undefined) {
@@ -179,16 +190,17 @@
 
   // ---- Particle System ----
   function spawnParticles(x, y, w, h, color, dir) {
+    const scale = S / 720;
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       particles.push({
         x: x + rand(-w * 0.1, w * 1.1),
         y: y + rand(0, h),
-        vx: dir > 0 ? rand(1, 5) : rand(-5, -1),
-        vy: rand(-3, -0.5),
+        vx: (dir > 0 ? rand(1, 5) : rand(-5, -1)) * scale,
+        vy: rand(-3, -0.5) * scale,
         life: 1,
         decay: rand(0.015, 0.04),
         color: color,
-        size: rand(2, 6),
+        size: Math.max(1, rand(2, 6) * scale),
       });
     }
     // Sparkle particles
@@ -196,12 +208,12 @@
       particles.push({
         x: x + rand(0, w),
         y: y + rand(0, h),
-        vx: rand(-3, 3),
-        vy: rand(-4, -1),
+        vx: rand(-3, 3) * scale,
+        vy: rand(-4, -1) * scale,
         life: 1,
         decay: rand(0.02, 0.05),
         color: C.WHITE,
-        size: rand(1, 3),
+        size: Math.max(1, rand(1, 3) * scale),
       });
     }
   }
@@ -261,6 +273,7 @@
     blocks = [];
     particles = [];
     score = 0;
+    isNewHighScore = false;
     combo = 0;
     cameraY = 0;
     shakeAmount = 0;
@@ -329,18 +342,11 @@
       state = STATE.GAME_OVER;
       gameOverTimer = 0;
       shakeAmount = 8;
-      if (score > highScore) {
-        highScore = score;
-        localStorage.setItem("cyberstack_high", highScore);
-      }
       return;
     }
 
     // Check for "perfect" stack (very close alignment)
-    const misalign = Math.min(
-      Math.abs(ab.x - prev.x),
-      Math.abs((ab.x + ab.w) - (prev.x + prev.w))
-    );
+    const misalign = Math.abs(ab.x - prev.x);
     const isPerfect = misalign < PERFECT_THRESHOLD * S;
 
     // Create the placed block from the overlap region
@@ -356,6 +362,12 @@
     };
     blocks.push(placed);
     score++;
+    if (score > highScore) {
+      highScore = score;
+      isNewHighScore = true;
+      localStorage.setItem("cyberstack_high", highScore);
+    }
+
     if (isPerfect) {
       combo++;
       perfectFlash = 1;
@@ -363,42 +375,41 @@
       placed.w = prev.w;
       placed.x = prev.x;
       shakeAmount = 2;
-    } else {
-      combo = 0;
-      shakeAmount = 3;
-    }
-    placed.normW = placed.w / S;
-    placed.normOffset = ((placed.x + placed.w / 2) - W / 2) / S;
 
-    // Spawn particles from the sliced-off portion
-    if (ab.x < prev.x) {
-      // Left slice
-      spawnParticles(ab.x, ab.y, prev.x - ab.x, ab.h, ab.color, -1);
-    }
-    if (ab.x + ab.w > prev.x + prev.w) {
-      // Right slice
-      const sliceX = prev.x + prev.w;
-      spawnParticles(sliceX, ab.y, (ab.x + ab.w) - sliceX, ab.h, ab.color, 1);
-    }
-
-    // Perfect bonus particles
-    if (isPerfect) {
+      // Perfect bonus particles
+      const scale = S / 720;
       for (let i = 0; i < 20; i++) {
         particles.push({
           x: placed.x + rand(0, placed.w),
           y: placed.y + rand(0, placed.h),
-          vx: rand(-4, 4),
-          vy: rand(-5, -1),
+          vx: rand(-4, 4) * scale,
+          vy: rand(-5, -1) * scale,
           life: 1,
           decay: rand(0.01, 0.03),
           color: C.YELLOW,
-          size: rand(2, 5),
+          size: Math.max(1, rand(2, 5) * scale),
         });
       }
-    }
+    } else {
+      combo = 0;
+      shakeAmount = 3;
 
-    // Scroll camera: fixed after 12 blocks, then one block height per new block
-    cameraY = Math.max(0, (blocks.length - SCROLL_THRESHOLD) * blockH());
+      // Spawn particles from the sliced-off portion
+      if (ab.x < prev.x) {
+        // Left slice
+        spawnParticles(ab.x, ab.y, prev.x - ab.x, ab.h, ab.color, -1);
+      }
+      if (ab.x + ab.w > prev.x + prev.w) {
+        // Right slice
+        const sliceX = prev.x + prev.w;
+        spawnParticles(sliceX, ab.y, (ab.x + ab.w) - sliceX, ab.h, ab.color, 1);
+      }
+    }
+    placed.normW = placed.w / S;
+    placed.normOffset = ((placed.x + placed.w / 2) - W / 2) / S;
+
+    // Scroll camera: keep active block vertically centered once tower reaches screen center
+    cameraY = getCameraY(blocks.length, H, S);
 
     // Spawn next active block
     spawnActiveBlock(blocks.length);
@@ -415,9 +426,13 @@
 
       // Bounce off play corridor edges (go past a bit for visual effect)
       const pastEdge = activeBlock.w * 0.3;
-      if (activeBlock.dir > 0 && activeBlock.x > playRight() + pastEdge) {
+      const maxX = playRight() + pastEdge;
+      const minX = playLeft() - activeBlock.w - pastEdge;
+      if (activeBlock.dir > 0 && activeBlock.x > maxX) {
+        activeBlock.x = maxX;
         activeBlock.dir = -1;
-      } else if (activeBlock.dir < 0 && activeBlock.x + activeBlock.w < playLeft() - pastEdge) {
+      } else if (activeBlock.dir < 0 && activeBlock.x < minX) {
+        activeBlock.x = minX;
         activeBlock.dir = 1;
       }
       activeBlock.normOffset = ((activeBlock.x + activeBlock.w / 2) - W / 2) / S;
@@ -450,16 +465,32 @@
     }
     ctx.fillStyle = fill;
     ctx.fillRect(x, y, w, h);
-    if (stroke) {
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = stroke;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-    }
-    // Inner highlight
+
     ctx.shadowBlur = 0;
-    ctx.fillStyle = "rgba(255,255,255,0.12)";
-    ctx.fillRect(x + 2, y + 2, w - 4, h * 0.35);
+    const borderW = clamp(S * 0.003, 1.5, 3);
+    const inset = borderW;
+
+    if (stroke && w > borderW && h > borderW) {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = borderW;
+      ctx.strokeRect(
+        x + borderW * 0.5,
+        y + borderW * 0.5,
+        w - borderW,
+        h - borderW
+      );
+    }
+
+    if (w > inset * 2 && h > inset * 2) {
+      const innerW = w - inset * 2;
+      // Top inner highlight for blocky 3D bevel
+      ctx.fillStyle = "rgba(255,255,255,0.15)";
+      ctx.fillRect(x + inset, y + inset, innerW, Math.max(1, (h - inset * 2) * 0.32));
+      // Bottom inner shade for depth
+      const shadeH = Math.max(1, (h - inset * 2) * 0.22);
+      ctx.fillStyle = "rgba(0,0,0,0.18)";
+      ctx.fillRect(x + inset, y + h - inset - shadeH, innerW, shadeH);
+    }
     ctx.restore();
   }
 
@@ -646,10 +677,10 @@
 
     // High score
     ctx.shadowColor = C.YELLOW;
-    ctx.shadowBlur = score >= highScore ? 20 : 8;
-    ctx.fillStyle = score >= highScore ? C.YELLOW : C.GRAY;
+    ctx.shadowBlur = isNewHighScore ? 20 : 8;
+    ctx.fillStyle = isNewHighScore ? C.YELLOW : C.GRAY;
     ctx.font = `${S * 0.035}px 'Courier New', monospace`;
-    if (score >= highScore && score > 0) {
+    if (isNewHighScore) {
       ctx.fillText("★ NEW HIGH SCORE ★", W / 2, H * 0.55);
     }
     ctx.fillText("HIGH SCORE: " + highScore, W / 2, H * 0.62);
@@ -690,10 +721,15 @@
     ctx.save();
     ctx.translate(0, cameraY);
 
-    // Draw stacked blocks
+    // Draw stacked blocks (cull off-screen blocks)
     const time = performance.now() / 1000;
+    const edgeLineW = clamp(S * 0.0018, 1, 2);
+    const edgeGlow = clamp(S * 0.008, 4, 10);
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
+      const screenY = b.y + cameraY;
+      if (screenY > H + b.h || screenY + b.h < -b.h) continue;
+
       const glow = b.glow * (0.7 + Math.sin(time * 2 + i * 0.5) * 0.3) * S * 0.005;
       drawRect(b.x, b.y, b.w, b.h, b.color, C.WHITE, b.color, clamp(glow, 4, 20));
 
@@ -701,9 +737,9 @@
       ctx.save();
       ctx.globalAlpha = 0.4;
       ctx.strokeStyle = C.CYAN;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = edgeLineW;
       ctx.shadowColor = C.CYAN;
-      ctx.shadowBlur = 6;
+      ctx.shadowBlur = edgeGlow;
       ctx.beginPath();
       ctx.moveTo(b.x, b.y);
       ctx.lineTo(b.x + b.w, b.y);
@@ -728,7 +764,7 @@
       const arrowY = ab.y - S * 0.02;
       const arrowSize = S * 0.015;
       for (let i = 0; i < 3; i++) {
-        const ax = ab.x + ab.w / 2 + (i - 1) * arrowSize * 3;
+        const ax = ab.x + ab.w / 2 + (i - 1) * arrowSize * 3 - arrowSize * 0.5;
         ctx.beginPath();
         if (ab.dir > 0) {
           ctx.moveTo(ax, arrowY);
