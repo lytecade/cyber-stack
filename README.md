@@ -26,7 +26,7 @@ your next block. The game ends when a block misses entirely and falls away.
 
 ## Game Features
 
-- **Square canvas** that auto-scales to fit any screen size.
+- **Responsive full-viewport canvas** that adapts to any desktop or mobile screen size and orientation.
 - **Cyberpunk neon visuals** using the Arne16 color palette.
 - **Particle effects** on every slice.
 - **Responsive controls** for both desktop (keyboard) and mobile (touch).

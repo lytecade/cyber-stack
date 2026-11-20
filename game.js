@@ -32,34 +32,15 @@
     C.BLUE, C.GREEN, C.RED, C.GRAY,
   ];
 
-  // ---- Canvas Setup ----
-  const canvas = document.getElementById("game");
-  const ctx = canvas.getContext("2d");
-
-  let SIZE = 0;            // canvas pixel size (square)
-  let DPR = Math.min(window.devicePixelRatio || 1, 2);
-
-  function resize() {
-    DPR = Math.min(window.devicePixelRatio || 1, 2);
-    SIZE = Math.min(window.innerWidth, window.innerHeight);
-    canvas.width  = SIZE * DPR;
-    canvas.height = SIZE * DPR;
-    canvas.style.width  = SIZE + "px";
-    canvas.style.height = SIZE + "px";
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  }
-  window.addEventListener("resize", resize);
-  resize();
-
-  // ---- Game Constants (in logical pixels) ----
-  const BLOCK_HEIGHT_RATIO = 0.035;   // block height as fraction of canvas
-  const INITIAL_WIDTH_RATIO = 0.55;    // starting block width fraction
-  const BASE_SPEED = 3.36;              // base horizontal speed
+  // ---- Game Constants ----
+  const BLOCK_HEIGHT_RATIO = 0.035;   // block height as fraction of reference scale S
+  const INITIAL_WIDTH_RATIO = 0.55;    // starting block width fraction of S
+  const BASE_SPEED = 3.36;              // base horizontal speed at 720p
   const SPEED_INCREMENT = 0.12;        // speed increase per block
   const MAX_SPEED = 9;
   const SCROLL_THRESHOLD = 12;         // start scrolling camera after this many blocks
   const PARTICLE_COUNT = 18;           // particles per slice
-  const PERFECT_THRESHOLD = 0.015;     // pixel tolerance for "perfect" stack
+  const PERFECT_THRESHOLD = 0.015;     // tolerance fraction of S for "perfect" stack
   const GLOW_PULSE_MIN = 0.6;
   const GLOW_PULSE_MAX = 1.0;
 
@@ -68,7 +49,7 @@
 
   // ---- Game State ----
   let state = STATE.TITLE;
-  let blocks = [];          // stacked blocks: {x, y, w, h, color, glow}
+  let blocks = [];          // stacked blocks: {x, y, w, h, normW, normOffset, color, glow}
   let activeBlock = null;   // the currently moving block
   let particles = [];       // {x, y, vx, vy, life, color, size}
   let score = 0;
@@ -82,17 +63,119 @@
   let fallingBlock = null;  // the block that fell (for game-over anim)
   let lastTimestamp = 0;
 
+  // ---- Canvas & Viewport Setup ----
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+
+  let W = 0;                // logical viewport width
+  let H = 0;                // logical viewport height
+  let S = 0;                // reference scale factor: min(W, H)
+  let DPR = Math.min(window.devicePixelRatio || 1, 2);
+
   // ---- Utility ----
   function lerp(a, b, t) { return a + (b - a) * t; }
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
 
-  // ---- Block Dimensions ----
-  function blockH() { return SIZE * BLOCK_HEIGHT_RATIO; }
-  function initialW() { return SIZE * INITIAL_WIDTH_RATIO; }
-  function currentSpeed() {
-    return clamp(BASE_SPEED + score * SPEED_INCREMENT, BASE_SPEED, MAX_SPEED);
+  // ---- Responsive Dimensions & Play Corridor ----
+  function blockH() { return S * BLOCK_HEIGHT_RATIO; }
+  function initialW() { return S * INITIAL_WIDTH_RATIO; }
+  function getBaseY(h = H, s = S) {
+    return h - s * BLOCK_HEIGHT_RATIO - s * 0.08;
   }
+  function playLeft() { return (W - S) / 2; }
+  function playRight() { return (W + S) / 2; }
+  function currentSpeed() {
+    return clamp(BASE_SPEED + score * SPEED_INCREMENT, BASE_SPEED, MAX_SPEED) * (S / 720);
+  }
+
+  function resize() {
+    const oldW = W;
+    const oldH = H;
+    const oldS = S;
+    const oldDPR = DPR;
+
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.max(1, window.innerWidth);
+    H = Math.max(1, window.innerHeight);
+    S = Math.min(W, H);
+
+    if (oldS > 0 && W === oldW && H === oldH && DPR === oldDPR) {
+      return;
+    }
+
+    canvas.width  = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    canvas.style.width  = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    if (oldS > 0) {
+      const scale = S / oldS;
+      const oldBaseY = getBaseY(oldH, oldS);
+      const newBaseY = getBaseY(H, S);
+      const bh = blockH();
+
+      for (let i = 0; i < blocks.length; i++) {
+        const b = blocks[i];
+        if (b.normW === undefined) {
+          b.normW = b.w / oldS;
+          b.normOffset = ((b.x + b.w / 2) - oldW / 2) / oldS;
+        }
+        b.w = b.normW * S;
+        b.h = bh;
+        b.x = W / 2 + b.normOffset * S - b.w / 2;
+        b.y = newBaseY - i * bh;
+      }
+
+      cameraY = Math.max(0, (blocks.length - SCROLL_THRESHOLD) * bh);
+
+      if (activeBlock) {
+        if (activeBlock.normW === undefined) {
+          activeBlock.normW = activeBlock.w / oldS;
+          activeBlock.normOffset = ((activeBlock.x + activeBlock.w / 2) - oldW / 2) / oldS;
+        }
+        activeBlock.w = activeBlock.normW * S;
+        activeBlock.h = bh;
+        activeBlock.y = newBaseY - blocks.length * bh;
+        activeBlock.x = W / 2 + activeBlock.normOffset * S - activeBlock.w / 2;
+        activeBlock.speed = currentSpeed();
+
+        const pastEdge = activeBlock.w * 0.3;
+        if (activeBlock.x < playLeft() - activeBlock.w - pastEdge ||
+            activeBlock.x > playRight() + pastEdge) {
+          activeBlock.x = clamp(activeBlock.x, playLeft() - activeBlock.w, playRight());
+        }
+        activeBlock.normOffset = ((activeBlock.x + activeBlock.w / 2) - W / 2) / S;
+      }
+
+      if (fallingBlock) {
+        fallingBlock.x = W / 2 + (fallingBlock.x - oldW / 2) * scale;
+        fallingBlock.y = newBaseY + (fallingBlock.y - oldBaseY) * scale;
+        fallingBlock.w *= scale;
+        fallingBlock.h = bh;
+        fallingBlock.vy *= scale;
+      }
+
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        p.x = W / 2 + (p.x - oldW / 2) * scale;
+        p.y = newBaseY + (p.y - oldBaseY) * scale;
+        p.vx *= scale;
+        p.vy *= scale;
+        p.size *= scale;
+      }
+    }
+
+    render();
+  }
+
+  window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", resize);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", resize);
+  }
+  resize();
 
   // ---- Particle System ----
   function spawnParticles(x, y, w, h, color, dir) {
@@ -124,11 +207,12 @@
   }
 
   function updateParticles(dt) {
+    const gravScale = S / 720;
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
       p.x += p.vx * dt * 60;
       p.y += p.vy * dt * 60;
-      p.vy += 0.12 * dt * 60; // gravity
+      p.vy += 0.12 * gravScale * dt * 60; // gravity
       p.life -= p.decay * dt * 60;
       if (p.life <= 0) particles.splice(i, 1);
     }
@@ -187,13 +271,15 @@
     // Place the base block centered at the bottom
     const bh = blockH();
     const bw = initialW();
-    const baseY = SIZE - bh - SIZE * 0.08;
+    const baseY = getBaseY();
 
     blocks.push({
-      x: (SIZE - bw) / 2,
+      x: (W - bw) / 2,
       y: baseY,
       w: bw,
       h: bh,
+      normW: INITIAL_WIDTH_RATIO,
+      normOffset: 0,
       color: BLOCK_COLORS[0],
       glow: 0.8,
     });
@@ -210,12 +296,15 @@
       y: prev.y - bh,
       w: prev.w,
       h: bh,
+      normW: prev.normW,
+      normOffset: 0,
       color: BLOCK_COLORS[index % BLOCK_COLORS.length],
       dir: index % 2 === 1 ? 1 : -1,  // alternate direction
       speed: currentSpeed(),
     };
-    // Start from the edge based on direction
-    activeBlock.x = activeBlock.dir > 0 ? -activeBlock.w : SIZE;
+    // Start from the edge of the centered play corridor based on direction
+    activeBlock.x = activeBlock.dir > 0 ? playLeft() - activeBlock.w : playRight();
+    activeBlock.normOffset = ((activeBlock.x + activeBlock.w / 2) - W / 2) / S;
   }
 
   // ---- Drop Block Logic ----
@@ -252,7 +341,7 @@
       Math.abs(ab.x - prev.x),
       Math.abs((ab.x + ab.w) - (prev.x + prev.w))
     );
-    const isPerfect = misalign < PERFECT_THRESHOLD * SIZE;
+    const isPerfect = misalign < PERFECT_THRESHOLD * S;
 
     // Create the placed block from the overlap region
     const placed = {
@@ -260,6 +349,8 @@
       y: ab.y,
       w: overlapWidth,
       h: ab.h,
+      normW: 0,
+      normOffset: 0,
       color: ab.color,
       glow: isPerfect ? 1.2 : 0.8,
     };
@@ -276,6 +367,8 @@
       combo = 0;
       shakeAmount = 3;
     }
+    placed.normW = placed.w / S;
+    placed.normOffset = ((placed.x + placed.w / 2) - W / 2) / S;
 
     // Spawn particles from the sliced-off portion
     if (ab.x < prev.x) {
@@ -305,9 +398,7 @@
     }
 
     // Scroll camera: fixed after 12 blocks, then one block height per new block
-    if (blocks.length > SCROLL_THRESHOLD) {
-      cameraY += blockH();
-    }
+    cameraY = Math.max(0, (blocks.length - SCROLL_THRESHOLD) * blockH());
 
     // Spawn next active block
     spawnActiveBlock(blocks.length);
@@ -322,19 +413,20 @@
     if (state === STATE.PLAYING && activeBlock) {
       activeBlock.x += activeBlock.dir * activeBlock.speed * dt * 60;
 
-      // Bounce off edges (go past a bit for visual effect)
+      // Bounce off play corridor edges (go past a bit for visual effect)
       const pastEdge = activeBlock.w * 0.3;
-      if (activeBlock.dir > 0 && activeBlock.x > SIZE + pastEdge) {
+      if (activeBlock.dir > 0 && activeBlock.x > playRight() + pastEdge) {
         activeBlock.dir = -1;
-      } else if (activeBlock.dir < 0 && activeBlock.x + activeBlock.w < -pastEdge) {
+      } else if (activeBlock.dir < 0 && activeBlock.x + activeBlock.w < playLeft() - pastEdge) {
         activeBlock.dir = 1;
       }
+      activeBlock.normOffset = ((activeBlock.x + activeBlock.w / 2) - W / 2) / S;
     }
 
     if (state === STATE.GAME_OVER) {
       gameOverTimer += dt;
       if (fallingBlock) {
-        fallingBlock.vy += 0.4 * dt * 60;
+        fallingBlock.vy += 0.4 * (S / 720) * dt * 60;
         fallingBlock.y += fallingBlock.vy * dt * 60;
         fallingBlock.rot += 0.03 * dt * 60;
       }
@@ -376,18 +468,19 @@
     ctx.globalAlpha = 0.08;
     ctx.strokeStyle = C.LIGHTBLUE;
     ctx.lineWidth = 1;
-    const gridSize = SIZE * 0.04;
+    const gridSize = S * 0.04;
     const offsetY = cameraY % gridSize;
-    for (let y = -gridSize + offsetY; y < SIZE + gridSize; y += gridSize) {
+    for (let y = -gridSize + offsetY; y < H + gridSize; y += gridSize) {
       ctx.beginPath();
       ctx.moveTo(0, y);
-      ctx.lineTo(SIZE, y);
+      ctx.lineTo(W, y);
       ctx.stroke();
     }
-    for (let x = 0; x < SIZE + gridSize; x += gridSize) {
+    const offsetX = (W / 2) % gridSize;
+    for (let x = offsetX; x < W + gridSize; x += gridSize) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
-      ctx.lineTo(x, SIZE);
+      ctx.lineTo(x, H);
       ctx.stroke();
     }
     ctx.restore();
@@ -397,8 +490,8 @@
     ctx.save();
     ctx.globalAlpha = 0.04;
     ctx.fillStyle = C.BLACK;
-    for (let y = 0; y < SIZE; y += 3) {
-      ctx.fillRect(0, y, SIZE, 1);
+    for (let y = 0; y < H; y += 3) {
+      ctx.fillRect(0, y, W, 1);
     }
     ctx.restore();
   }
@@ -406,13 +499,13 @@
   function drawVignette() {
     ctx.save();
     const grad = ctx.createRadialGradient(
-      SIZE / 2, SIZE / 2, SIZE * 0.25,
-      SIZE / 2, SIZE / 2, SIZE * 0.75
+      W / 2, H / 2, S * 0.25,
+      W / 2, H / 2, Math.max(W, H) * 0.75
     );
     grad.addColorStop(0, "rgba(0,0,0,0)");
     grad.addColorStop(1, "rgba(0,0,0,0.5)");
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, SIZE, SIZE);
+    ctx.fillRect(0, 0, W, H);
     ctx.restore();
   }
 
@@ -437,24 +530,24 @@
     ctx.fillStyle = C.WHITE;
     ctx.shadowColor = C.CYAN;
     ctx.shadowBlur = 10;
-    ctx.font = `bold ${SIZE * 0.06}px 'Courier New', monospace`;
-    ctx.fillText(score, SIZE / 2, SIZE * 0.02);
+    ctx.font = `bold ${S * 0.06}px 'Courier New', monospace`;
+    ctx.fillText(score, W / 2, H * 0.02);
 
     // Combo indicator
     if (combo > 1) {
       ctx.shadowColor = C.YELLOW;
       ctx.shadowBlur = 15;
       ctx.fillStyle = C.YELLOW;
-      ctx.font = `bold ${SIZE * 0.03}px 'Courier New', monospace`;
-      ctx.fillText(`PERFECT x${combo}`, SIZE / 2, SIZE * 0.09);
+      ctx.font = `bold ${S * 0.03}px 'Courier New', monospace`;
+      ctx.fillText(`PERFECT x${combo}`, W / 2, H * 0.02 + S * 0.07);
     }
 
     // High score
     ctx.shadowBlur = 0;
     ctx.fillStyle = C.GRAY;
-    ctx.font = `${SIZE * 0.025}px 'Courier New', monospace`;
+    ctx.font = `${S * 0.025}px 'Courier New', monospace`;
     ctx.textAlign = "right";
-    ctx.fillText("HI " + highScore, SIZE - SIZE * 0.03, SIZE * 0.02);
+    ctx.fillText("HI " + highScore, W - S * 0.03, H * 0.02);
 
     ctx.restore();
   }
@@ -462,6 +555,7 @@
   // ---- Title Screen ----
   function drawTitle() {
     const pulse = Math.sin(titlePulse) * 0.5 + 0.5;
+    const lineSpan = Math.min(W * 0.8, S * 0.9);
 
     ctx.save();
     ctx.textAlign = "center";
@@ -472,10 +566,10 @@
     ctx.globalAlpha = 0.3 + pulse * 0.2;
     ctx.lineWidth = 1;
     for (let i = 0; i < 5; i++) {
-      const y = SIZE * 0.15 + i * SIZE * 0.03;
+      const y = H * 0.15 + i * H * 0.03;
       ctx.beginPath();
-      ctx.moveTo(SIZE * 0.1, y);
-      ctx.lineTo(SIZE * 0.9, y);
+      ctx.moveTo(W / 2 - lineSpan / 2, y);
+      ctx.lineTo(W / 2 + lineSpan / 2, y);
       ctx.stroke();
     }
 
@@ -484,39 +578,39 @@
     ctx.shadowColor = C.CYAN;
     ctx.shadowBlur = 20 + pulse * 15;
     ctx.fillStyle = C.WHITE;
-    ctx.font = `bold ${SIZE * 0.12}px 'Courier New', monospace`;
-    ctx.fillText("CYBER", SIZE / 2, SIZE * 0.35);
+    ctx.font = `bold ${S * 0.12}px 'Courier New', monospace`;
+    ctx.fillText("CYBER", W / 2, H * 0.35);
     ctx.fillStyle = C.CYAN;
     ctx.shadowColor = C.LIGHTBLUE;
-    ctx.fillText("STACK", SIZE / 2, SIZE * 0.47);
+    ctx.fillText("STACK", W / 2, H * 0.47);
 
     // Subtitle
     ctx.shadowBlur = 8;
     ctx.shadowColor = C.LIGHTBLUE;
     ctx.fillStyle = C.LIGHTBLUE;
-    ctx.font = `${SIZE * 0.03}px 'Courier New', monospace`;
-    ctx.fillText("/// BUILD THE TOWER ///", SIZE / 2, SIZE * 0.58);
+    ctx.font = `${S * 0.03}px 'Courier New', monospace`;
+    ctx.fillText("/// BUILD THE TOWER ///", W / 2, H * 0.58);
 
     // Prompt
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 0.5 + pulse * 0.5;
     ctx.fillStyle = C.WHITE;
-    ctx.font = `${SIZE * 0.035}px 'Courier New', monospace`;
-    ctx.fillText("[ PRESS SPACE / TAP TO START ]", SIZE / 2, SIZE * 0.72);
+    ctx.font = `${S * 0.035}px 'Courier New', monospace`;
+    ctx.fillText("[ PRESS SPACE / TAP TO START ]", W / 2, H * 0.72);
 
     // High score on title
     if (highScore > 0) {
       ctx.globalAlpha = 0.6;
       ctx.fillStyle = C.GRAY;
-      ctx.font = `${SIZE * 0.025}px 'Courier New', monospace`;
-      ctx.fillText("HIGH SCORE: " + highScore, SIZE / 2, SIZE * 0.82);
+      ctx.font = `${S * 0.025}px 'Courier New', monospace`;
+      ctx.fillText("HIGH SCORE: " + highScore, W / 2, H * 0.82);
     }
 
     // Controls hint
     ctx.globalAlpha = 0.3;
     ctx.fillStyle = C.GRAY;
-    ctx.font = `${SIZE * 0.02}px 'Courier New', monospace`;
-    ctx.fillText("SPACE / ENTER / TAP to drop blocks", SIZE / 2, SIZE * 0.90);
+    ctx.font = `${S * 0.02}px 'Courier New', monospace`;
+    ctx.fillText("SPACE / ENTER / TAP to drop blocks", W / 2, H * 0.90);
 
     ctx.restore();
   }
@@ -532,7 +626,7 @@
     // Dim overlay
     ctx.globalAlpha = fadeIn * 0.5;
     ctx.fillStyle = C.NAVY;
-    ctx.fillRect(0, 0, SIZE, SIZE);
+    ctx.fillRect(0, 0, W, H);
 
     ctx.globalAlpha = fadeIn;
 
@@ -540,25 +634,25 @@
     ctx.shadowColor = C.RED;
     ctx.shadowBlur = 25;
     ctx.fillStyle = C.RED;
-    ctx.font = `bold ${SIZE * 0.1}px 'Courier New', monospace`;
-    ctx.fillText("GAME OVER", SIZE / 2, SIZE * 0.3);
+    ctx.font = `bold ${S * 0.1}px 'Courier New', monospace`;
+    ctx.fillText("GAME OVER", W / 2, H * 0.3);
 
     // Score
     ctx.shadowColor = C.CYAN;
     ctx.shadowBlur = 12;
     ctx.fillStyle = C.WHITE;
-    ctx.font = `bold ${SIZE * 0.06}px 'Courier New', monospace`;
-    ctx.fillText("SCORE: " + score, SIZE / 2, SIZE * 0.45);
+    ctx.font = `bold ${S * 0.06}px 'Courier New', monospace`;
+    ctx.fillText("SCORE: " + score, W / 2, H * 0.45);
 
     // High score
     ctx.shadowColor = C.YELLOW;
     ctx.shadowBlur = score >= highScore ? 20 : 8;
     ctx.fillStyle = score >= highScore ? C.YELLOW : C.GRAY;
-    ctx.font = `${SIZE * 0.035}px 'Courier New', monospace`;
+    ctx.font = `${S * 0.035}px 'Courier New', monospace`;
     if (score >= highScore && score > 0) {
-      ctx.fillText("★ NEW HIGH SCORE ★", SIZE / 2, SIZE * 0.55);
+      ctx.fillText("★ NEW HIGH SCORE ★", W / 2, H * 0.55);
     }
-    ctx.fillText("HIGH SCORE: " + highScore, SIZE / 2, SIZE * 0.62);
+    ctx.fillText("HIGH SCORE: " + highScore, W / 2, H * 0.62);
 
     // New game prompt
     if (gameOverTimer > 0.8) {
@@ -566,8 +660,8 @@
       ctx.globalAlpha = fadeIn * (0.4 + pulse * 0.6);
       ctx.shadowBlur = 0;
       ctx.fillStyle = C.WHITE;
-      ctx.font = `${SIZE * 0.03}px 'Courier New', monospace`;
-      ctx.fillText("[ PRESS TO PLAY AGAIN ]", SIZE / 2, SIZE * 0.78);
+      ctx.font = `${S * 0.03}px 'Courier New', monospace`;
+      ctx.fillText("[ PRESS TO PLAY AGAIN ]", W / 2, H * 0.78);
     }
 
     ctx.restore();
@@ -575,11 +669,11 @@
 
   // ---- Main Render ----
   function render() {
-    ctx.clearRect(0, 0, SIZE, SIZE);
+    ctx.clearRect(0, 0, W, H);
 
     // Background
     ctx.fillStyle = C.NAVY;
-    ctx.fillRect(0, 0, SIZE, SIZE);
+    ctx.fillRect(0, 0, W, H);
 
     drawGrid();
 
@@ -600,7 +694,7 @@
     const time = performance.now() / 1000;
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
-      const glow = b.glow * (0.7 + Math.sin(time * 2 + i * 0.5) * 0.3) * SIZE * 0.005;
+      const glow = b.glow * (0.7 + Math.sin(time * 2 + i * 0.5) * 0.3) * S * 0.005;
       drawRect(b.x, b.y, b.w, b.h, b.color, C.WHITE, b.color, clamp(glow, 4, 20));
 
       // Edge glow line
@@ -624,15 +718,15 @@
       drawRect(
         ab.x, ab.y, ab.w, ab.h,
         ab.color, C.WHITE, ab.color,
-        glowPulse * SIZE * 0.006
+        glowPulse * S * 0.006
       );
 
       // Direction indicator arrows
       ctx.save();
       ctx.globalAlpha = 0.3;
       ctx.fillStyle = C.CYAN;
-      const arrowY = ab.y - SIZE * 0.02;
-      const arrowSize = SIZE * 0.015;
+      const arrowY = ab.y - S * 0.02;
+      const arrowSize = S * 0.015;
       for (let i = 0; i < 3; i++) {
         const ax = ab.x + ab.w / 2 + (i - 1) * arrowSize * 3;
         ctx.beginPath();
@@ -665,21 +759,23 @@
     // Particles (in camera space)
     drawParticles();
 
-    // Perfect flash overlay
+    ctx.restore(); // end camera transform
+
+    // Perfect flash overlay (full viewport regardless of cameraY)
     if (perfectFlash > 0) {
+      ctx.save();
       ctx.globalAlpha = perfectFlash * 0.15;
       ctx.fillStyle = C.YELLOW;
-      ctx.fillRect(-50, -50, SIZE + 100, SIZE + 100);
+      ctx.fillRect(-50, -50, W + 100, H + 100);
+      ctx.restore();
     }
-
-    ctx.restore(); // end camera transform
 
     // Border decoration (cyberpunk frame)
     ctx.strokeStyle = C.LIGHTBLUE;
     ctx.globalAlpha = 0.2;
     ctx.lineWidth = 2;
-    const margin = SIZE * 0.01;
-    const cornerLen = SIZE * 0.04;
+    const margin = S * 0.01;
+    const cornerLen = S * 0.04;
     // Top-left
     ctx.beginPath();
     ctx.moveTo(margin, margin + cornerLen);
@@ -688,21 +784,21 @@
     ctx.stroke();
     // Top-right
     ctx.beginPath();
-    ctx.moveTo(SIZE - margin - cornerLen, margin);
-    ctx.lineTo(SIZE - margin, margin);
-    ctx.lineTo(SIZE - margin, margin + cornerLen);
+    ctx.moveTo(W - margin - cornerLen, margin);
+    ctx.lineTo(W - margin, margin);
+    ctx.lineTo(W - margin, margin + cornerLen);
     ctx.stroke();
     // Bottom-left
     ctx.beginPath();
-    ctx.moveTo(margin, SIZE - margin - cornerLen);
-    ctx.lineTo(margin, SIZE - margin);
-    ctx.lineTo(margin + cornerLen, SIZE - margin);
+    ctx.moveTo(margin, H - margin - cornerLen);
+    ctx.lineTo(margin, H - margin);
+    ctx.lineTo(margin + cornerLen, H - margin);
     ctx.stroke();
     // Bottom-right
     ctx.beginPath();
-    ctx.moveTo(SIZE - margin - cornerLen, SIZE - margin);
-    ctx.lineTo(SIZE - margin, SIZE - margin);
-    ctx.lineTo(SIZE - margin, SIZE - margin - cornerLen);
+    ctx.moveTo(W - margin - cornerLen, H - margin);
+    ctx.lineTo(W - margin, H - margin);
+    ctx.lineTo(W - margin, H - margin - cornerLen);
     ctx.stroke();
 
     ctx.restore(); // end shake transform
